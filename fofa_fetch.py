@@ -153,6 +153,49 @@ CHANNEL_MAPPING = {
 }#格式为"频道分类中的标准名": ["rtp/中的名字"],
 
 # ===============================
+# 新增函数：检测IP有效性
+def check_ip_alive(ip_port, timeout=3):
+    """检测IP端口是否存活"""
+    try:
+        # 尝试连接IP的80端口
+        response = requests.get(f"http://{ip_port}", timeout=timeout, headers=HEADERS)
+        return response.status_code == 200
+    except:
+        try:
+            # 如果80端口失败，尝试其他常见端口
+            for port in [8080, 8000, 8888]:
+                try:
+                    response = requests.get(f"http://{ip_port.split(':')[0]}:{port}", 
+                                          timeout=timeout, headers=HEADERS)
+                    if response.status_code == 200:
+                        return True
+                except:
+                    continue
+            return False
+        except:
+            return False
+
+def filter_alive_ips(ip_list, max_workers=20):
+    """多线程检测IP存活状态"""
+    alive_ips = []
+    
+    def check_single_ip(ip_port):
+        if check_ip_alive(ip_port):
+            return ip_port
+        return None
+    
+    print(f"🔍 检测 {len(ip_list)} 个IP的存活状态...")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(check_single_ip, ip): ip for ip in ip_list}
+        for future in concurrent.futures.as_completed(futures):
+            result = future.result()
+            if result:
+                alive_ips.append(result)
+    
+    print(f"✅ 存活IP数量: {len(alive_ips)}/{len(ip_list)}")
+    return alive_ips
+
+# ===============================
 # 计数逻辑
 def get_run_count():
     if os.path.exists(COUNTER_FILE):
@@ -168,11 +211,67 @@ def save_run_count(count):
 def check_and_clear_files_by_run_count():
     os.makedirs(IP_DIR, exist_ok=True)
     count = get_run_count() + 1
+    
     if count >= 73:
-        print(f"🧹 第 {count} 次运行，清空 {IP_DIR} 下所有 .txt 文件")
+        print(f"🧹 第 {count} 次运行，清理无效IP并保留有效IP")
+        
+        # 收集所有IP文件中的IP
+        all_ips = []
+        ip_files = []
+        
         for f in os.listdir(IP_DIR):
             if f.endswith(".txt"):
-                os.remove(os.path.join(IP_DIR, f))
+                file_path = os.path.join(IP_DIR, f)
+                ip_files.append(f)
+                try:
+                    with open(file_path, 'r', encoding='utf-8') as file:
+                        ips = [line.strip() for line in file if line.strip()]
+                        all_ips.extend(ips)
+                        print(f"  从 {f} 读取 {len(ips)} 个IP")
+                except Exception as e:
+                    print(f"❌ 读取文件 {f} 失败: {e}")
+        
+        if all_ips:
+            # 去重
+            unique_ips = list(set(all_ips))
+            print(f"📊 去重后IP总数: {len(unique_ips)}")
+            
+            # 检测存活IP
+            alive_ips = filter_alive_ips(unique_ips)
+            
+            # 按省份运营商重新分类存活IP
+            province_isp_dict = {}
+            for ip_port in alive_ips:
+                try:
+                    ip = ip_port.split(":")[0]
+                    res = requests.get(f"http://ip-api.com/json/{ip}?lang=zh-CN", timeout=10)
+                    data = res.json()
+                    province = data.get("regionName", "未知")
+                    isp = get_isp(ip)
+                    if isp == "未知":
+                        continue
+                    fname = f"{province}{isp}.txt"
+                    province_isp_dict.setdefault(fname, set()).add(ip_port)
+                except Exception:
+                    continue
+            
+            # 清空IP目录
+            for f in os.listdir(IP_DIR):
+                if f.endswith(".txt"):
+                    os.remove(os.path.join(IP_DIR, f))
+            
+            # 写入存活IP
+            for filename, ip_set in province_isp_dict.items():
+                path = os.path.join(IP_DIR, filename)
+                with open(path, "w", encoding="utf-8") as f:
+                    for ip_port in sorted(ip_set):
+                        f.write(ip_port + "\n")
+                print(f"✅ {path} 已写入 {len(ip_set)} 个存活IP")
+            
+            print(f"🎯 清理完成，保留 {len(alive_ips)} 个有效IP")
+        else:
+            print("⚠️ 没有找到需要清理的IP文件")
+        
         save_run_count(1)
         return "w", 1
     else:
