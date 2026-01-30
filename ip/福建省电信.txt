@@ -1,2 +1,3 @@
 120.41.66.7:18888
 blog.morefun.cn
+blog.morefun.cn
