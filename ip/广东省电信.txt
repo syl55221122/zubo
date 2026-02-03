@@ -36,3 +36,4 @@
 116.205.183.226:6009
 blog.morefun.cn
 blog.morefun.cn
+113.45.66.72
