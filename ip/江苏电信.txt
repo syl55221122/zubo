@@ -8,3 +8,4 @@
 121.237.245.83:8888
 180.127.121.157:4000
 wangzg.synology.me:4022
+wangzg.synology.me:4022
