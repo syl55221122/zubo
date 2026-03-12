@@ -3,3 +3,4 @@
 125.121.122.242:4022
 122.232.19.139:4000
 nuonuojiajia.xyz:4022
+nuonuojiajia.xyz:4022
